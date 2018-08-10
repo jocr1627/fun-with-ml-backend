@@ -1,0 +1,7 @@
+bs4
+keras
+numpy
+sklearn
+requests
+tensorflow
+websockets
