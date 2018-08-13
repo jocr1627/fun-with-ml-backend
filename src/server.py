@@ -8,51 +8,69 @@ import websockets
 class Status(IntEnum):
   DONE = 0
   ACTIVE = 1
+  ERROR = 2
 
 async def delete(send, args, loop):
-  model_id = args['model']['id']
-  model = Model(model_id)
-  strings = model.delete()
-  await send()
+  try:
+    model_id = args['model']['id']
+    model = Model(model_id)
+    strings = model.delete()
+    await send()
+  except Exception as e:
+    print(e)
+    await send(results=str(e), status=Status.ERROR)
 
 async def generate(send, args, loop):
-  model_id = args['model']['id']
-  model = Model(model_id)
-  count = args['count'] if 'count' in args else 1
-  max_length = args['maxLength'] if 'maxLength' in args else 0
-  prefix = args['prefix'] if 'prefix' in args else None
-  temperature = args['temperature'] if 'temperature' in args else 0.5
+  try:
+    model_id = args['model']['id']
+    model = Model(model_id)
+    count = args['count'] if 'count' in args else 1
+    max_length = args['maxLength'] if 'maxLength' in args else 0
+    prefix = args['prefix'] if 'prefix' in args else None
+    temperature = args['temperature'] if 'temperature' in args else 0.5
 
-  for i in range(count):
-    text = model.generate(max_length=max_length, prefix=prefix, temperature=temperature)
-    await send(results=text, status=Status.ACTIVE)
-  
-  await send()
+    for i in range(count):
+      text = model.generate(max_length=max_length, prefix=prefix, temperature=temperature)
+      await send(results=text, status=Status.ACTIVE)
+    
+    await send()
+  except Exception as e:
+    print(e)
+    await send(results=str(e), status=Status.ERROR)
 
 async def train(send, args, loop):
-  model_id = args['model']['id']
-  model = Model(model_id)
-  epochs = args['epochs'] if 'epochs' in args else 1
-  selectors = args['selectors'] if 'selectors' in args else ['body']
-  url = args['url']
+  try:
+    model_id = args['model']['id']
+    model = Model(model_id)
+    epochs = args['epochs'] if 'epochs' in args else 1
+    selectors = args['selectors'] if 'selectors' in args else ['body']
+    url = args['url']
 
-  def update(batch, epoch, logs):
-    loss = float(logs['loss'])
-    future = asyncio.run_coroutine_threadsafe(
-      send(
-        results={
-          'batch': batch,
-          'epoch': epoch,
-          'loss': loss
-        },
-        status=Status.ACTIVE
-      ),
-      loop
-    )
-    future.result()
+    def update(batch, epoch, logs):
+      loss = float(logs['loss'])
+      future = asyncio.run_coroutine_threadsafe(
+        send(
+          results={
+            'batch': batch,
+            'epoch': epoch,
+            'loss': loss
+          },
+          status=Status.ACTIVE
+        ),
+        loop
+      )
+      future.result()
 
-  model.train(url, epochs=epochs, selectors=selectors, update=update)
-  await send()
+    model.train(url, epochs=epochs, selectors=selectors, update=update)
+    await send()
+  except Exception as e:
+    print(e)
+    await send(results=str(e), status=Status.ERROR)
+
+class ServerProtocol(websockets.WebSocketServerProtocol):
+  async def process_request(self, path, request_headers):
+    if path != '/subscriptions' and path != '/subscriptions/':
+      return 200, [], ''
 
 class Server:
   handlers = {
@@ -83,6 +101,6 @@ class Server:
     await handler(send, args, self.loop)
 
   def start(self):
-    serve = websockets.serve(self.server, self.host, self.port)
+    serve = websockets.serve(self.server, self.host, self.port, create_protocol=ServerProtocol)
     asyncio.get_event_loop().run_until_complete(serve)
     asyncio.get_event_loop().run_forever()
